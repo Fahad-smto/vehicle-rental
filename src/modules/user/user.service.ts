@@ -1,58 +1,67 @@
-import bcrypt from "bcryptjs";
 import { pool } from "../../database/db";
 
-const createUserIntoDB = async (payload: any) => {
-  let { name, email, password, role, phone } = payload;
-
-  if (!name || !email || !password || !phone || !role) {
-    throw new Error("Name, Email, Password, Phone, and Role are required!");
-  }
-
-  if (password.length < 6) {
-    throw new Error("Password must be at least 6 characters!");
-  }
-
-  if (!["admin", "customer"].includes(role)) {
-    throw new Error("Role must be either admin or customer");
-  }
-
-  email = email.toLowerCase();
-  const hashedPassword = await bcrypt.hash(password, 12);
-
+const getAllUsersFromDB = async () => {
   const result = await pool.query(
-    `
-      INSERT INTO users(name, email, password, phone, role)
-      VALUES($1, $2, $3, $4, $5)
-      RETURNING id, name, email, phone, role, created_at
-    `,
-    [name, email, hashedPassword, phone, role]
+    `SELECT id, name, email, phone, role FROM users ORDER BY id ASC`
   );
-
-  return result;
+  return result.rows;
 };
 
-const getAllUserIntoDB = async () => {
-  const result = await pool.query(`
-     SELECT id, name, email, phone, role FROM users
-  `);
-  return result;
+const updateUserInDB = async (userId: number, payload: any) => {
+  // Build dynamic SET clause from only provided fields
+  const allowedFields = ["name", "email", "phone", "role"];
+  const fields: string[] = [];
+  const values: any[] = [];
+  let index = 1;
+
+  for (const field of allowedFields) {
+    if (payload[field] !== undefined) {
+      // Lowercase email if provided
+      const value = field === "email" ? payload[field].toLowerCase() : payload[field];
+      fields.push(`${field} = $${index}`);
+      values.push(value);
+      index++;
+    }
+  }
+
+  if (fields.length === 0) {
+    throw new Error("No valid fields provided to update");
+  }
+
+  // Always update updated_at
+  fields.push(`updated_at = NOW()`);
+  values.push(userId);
+
+  const query = `
+    UPDATE users
+    SET ${fields.join(", ")}
+    WHERE id = $${index}
+    RETURNING id, name, email, phone, role
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows[0] || null;
 };
 
-const getSingleUserIntoDB = async (email: string) => {
+const deleteUserFromDB = async (userId: number) => {
   const result = await pool.query(
-    `
-      SELECT id, name, email, phone, role 
-      FROM users 
-      WHERE email=$1
-    `,
-    [email.toLowerCase()]
+    `DELETE FROM users WHERE id = $1 RETURNING id`,
+    [userId]
   );
+  return result.rows[0] || null;
+};
 
-  return result.rows[0];
+const hasActiveBookings = async (userId: number): Promise<boolean> => {
+  const result = await pool.query(
+    `SELECT id FROM bookings WHERE customer_id = $1 AND status = 'active' LIMIT 1`,
+    [userId]
+  );
+  return result.rows.length > 0;
 };
 
 export const userServices = {
-  createUserIntoDB,
-  getAllUserIntoDB,
-  getSingleUserIntoDB,
+  getAllUsersFromDB,
+  updateUserInDB,
+  deleteUserFromDB,
+  hasActiveBookings,
 };

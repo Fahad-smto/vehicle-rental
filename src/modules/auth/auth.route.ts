@@ -7,6 +7,6 @@ const router = Router();
 router.post('/signup', authController.signupUser);
 
 // Login route
-router.post('/login', authController.loginUser);
+router.post('/signin', authController.loginUser);
 
 export const authRoute = router;
